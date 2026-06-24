@@ -1,0 +1,35 @@
+# Simulate the distributed setup on one machine: a central server plus two
+# agents, each tailing its own self-generated log and shipping events.
+#
+#   docker compose up --build
+#   docker compose exec server logscope search 'level:error "Failed to connect"'
+
+services:
+  server:
+    build: .
+    command: ["serve", "--host", "0.0.0.0", "--port", "9099", "--db", "/data/logscope.db"]
+    volumes:
+      - logscope-data:/data
+    ports:
+      - "9099:9099"
+
+  agent-web:
+    build: .
+    depends_on: [server]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        python -c "import time,random;f=open('/tmp/web.log','a');[ (f.write(('ERROR Failed to connect to db-%d after 3 retries\n'%random.randint(1,9)) if random.random()<0.2 else ('INFO GET /web/%d 200\n'%random.randint(1,9999))), f.flush(), time.sleep(0.1)) for _ in iter(int,1) ]" &
+        exec logscope agent /tmp/web.log --server server:9099 --from-start --id web
+
+  agent-api:
+    build: .
+    depends_on: [server]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        python -c "import time,random;f=open('/tmp/api.log','a');[ (f.write(('ERROR upstream timeout calling service-%d\n'%random.randint(1,5)) if random.random()<0.2 else ('INFO POST /api/orders/%d 201\n'%random.randint(1,9999))), f.flush(), time.sleep(0.1)) for _ in iter(int,1) ]" &
+        exec logscope agent /tmp/api.log --server server:9099 --from-start --id api
+
+volumes:
+  logscope-data:

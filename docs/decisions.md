@@ -8,7 +8,7 @@ Format: each decision states the **context**, the **choice**, and the **why**
 
 ---
 
-## D1 — Single `asyncio` event loop with bounded queues
+## D1 - Single `asyncio` event loop with bounded queues
 
 **Context.** The pipeline is IO-bound (tailing files, receiving network data,
 rendering a TUI) with occasional CPU spikes (clustering a batch).
@@ -23,7 +23,7 @@ memory. Rejected: thread-per-source (lock complexity, no natural backpressure).
 
 ---
 
-## D2 — `LogEvent` is `frozen=True, slots=True`
+## D2 - `LogEvent` is `frozen=True, slots=True`
 
 **Context.** One immutable record flows through every stage and may be shared
 across coroutines; we expect millions of them.
@@ -38,7 +38,7 @@ writes, but unsafe sharing and higher memory).
 
 ---
 
-## D3 — The data model carries no clock
+## D3 - The data model carries no clock
 
 **Context.** `ingest_ts` records when LogScope first saw an event.
 
@@ -52,7 +52,7 @@ of the data model is clean-architecture discipline. (Frozen dataclasses also mak
 
 ---
 
-## D4 — One query AST, two evaluation targets
+## D4 - One query AST, two evaluation targets
 
 **Context.** Queries must run against both persisted history *and* the live
 stream, and we don't want two diverging query implementations.
@@ -63,13 +63,13 @@ for the live stream). One grammar, two compile targets.
 
 **Why.** A single source of truth for query semantics: a fix or a new term works
 everywhere at once. Parameterized SQL fragments also prevent injection. We kept
-v1 AND-only (OR/NOT/parens are a documented stretch) — shipping a small correct
+v1 AND-only (OR/NOT/parens are a documented stretch) - shipping a small correct
 language beats a big buggy one. Rejected: substring/regex hacks (no structure,
 can't push predicates into the SQL index).
 
 ---
 
-## D5 — SQLite + FTS5 with batched writes and idempotent inserts
+## D5 - SQLite + FTS5 with batched writes and idempotent inserts
 
 **Context.** A single-node tool needs indexed full-text search and durable
 history without operating an external datastore.
@@ -78,7 +78,7 @@ history without operating an external datastore.
 sync). Events buffer and flush in one transaction. Each event has a stable
 `event_id` (hash of source+raw+ts) inserted with `INSERT OR IGNORE`.
 
-**Why.** Zero-dependency, transactional, full-text search built in — right-sized
+**Why.** Zero-dependency, transactional, full-text search built in - right-sized
 for one node. Batched transactions are the throughput lever (thousands →
 tens of thousands of inserts/sec). The stable id makes ingestion idempotent now,
 so Phase 4 agent resends de-dup for free. Scaling story if we outgrow SQLite:
@@ -87,7 +87,7 @@ time-partitioned append-only segment files. Rejected: Postgres/Elasticsearch
 
 ---
 
-## D6 — Drain (fixed-depth tree) for clustering, hand-written
+## D6 - Drain (fixed-depth tree) for clustering, hand-written
 
 **Context.** Collapsing thousands of near-identical lines into ranked templates
 is the tool's most valuable feature, and must run online at high line rates.
@@ -97,7 +97,7 @@ descend a fixed number of leading-token layers to a leaf, then match by
 similarity (merging differing positions to `<*>`) or create a new template.
 
 **Why.** The fixed depth bounds work per line independent of how many templates
-exist (≈O(1) amortized) — the property that makes it viable online. Writing it by
+exist (≈O(1) amortized) - the property that makes it viable online. Writing it by
 hand (not `drain3`) is the whole point: it's the algorithmic centerpiece and a
 data structure we can defend and whiteboard. Known limitation, tested explicitly:
 an *unmasked* variable in the prefix tokens over-splits; mitigations are masking
@@ -105,7 +105,7 @@ and `depth` tuning. Tuning knobs: `depth`, `sim_threshold`, `max_children`.
 
 ---
 
-## D7 — Transparent statistics for anomaly detection, not ML
+## D7 - Transparent statistics for anomaly detection, not ML
 
 **Context.** Spike detection must be trustworthy to an on-call engineer mid-incident.
 
@@ -114,14 +114,14 @@ exceeds `mean + k·stddev`, with an absolute `min_count` floor. The window is
 maintained incrementally (running sum/sum-of-squares) for O(1) per tick.
 
 **Why.** "This bucket is 4σ above the last five minutes" is actionable; "anomaly
-score 0.87" is not. Explainability is the senior signal here — we deliberately
+score 0.87" is not. Explainability is the senior signal here - we deliberately
 chose statistics we can justify over a black-box model. The floor prevents firing
 on tiny absolute jumps (0→3). Rejected: ML/forecasting models (opaque,
 overkill, harder to defend).
 
 ---
 
-## D8 — Length-prefixed JSON frames with at-least-once + idempotent ingest
+## D8 - Length-prefixed JSON frames with at-least-once + idempotent ingest
 
 **Context.** Agents on remote boxes ship event batches to a central server over
 TCP, which has no message boundaries and an unreliable connection.
@@ -137,22 +137,22 @@ forward/backward compatibility. At-least-once + idempotent ingest yields
 effectively-once without the coordination cost of true exactly-once. Backoff
 *with jitter* avoids a thundering herd when a downed server recovers. Drop-oldest
 favors fresh data and is a documented, deliberate policy. Rejected: msgpack
-(smaller but opaque — debuggability won for a portfolio tool); exactly-once
+(smaller but opaque - debuggability won for a portfolio tool); exactly-once
 (disproportionate complexity).
 
 ---
 
-## D9 — AI is additive, on-demand, cached, and degrades gracefully
+## D9 - AI is additive, on-demand, cached, and degrades gracefully
 
 **Context.** The deterministic core already answers "what is happening". AI can
-add "what might it mean / what to check first" — but must never be load-bearing.
+add "what might it mean / what to check first" - but must never be load-bearing.
 
 **Choice.** A `Summarizer` interface (OpenAI implementation via httpx; a Null
 default) invoked only when the user presses ctrl+s on a cluster. Results are
 cached by template fingerprint, bounded by a hard timeout and token cap, and any
 failure (disabled/timeout/network/bad response) returns `None`.
 
-**Why.** Pull-not-push controls cost and latency and shows restraint — the single
+**Why.** Pull-not-push controls cost and latency and shows restraint - the single
 design choice that most signals judgment. Caching by *template fingerprint* (not
 raw lines) makes the cache actually hit across incidents of the same shape.
 Graceful degradation is built and tested first-class: with no `OPENAI_API_KEY`

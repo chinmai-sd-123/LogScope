@@ -32,3 +32,6 @@ Thumbs.db
 # Secrets / local config
 .env
 *.local
+
+# Local-only demo helpers (not part of the published project)
+demo/

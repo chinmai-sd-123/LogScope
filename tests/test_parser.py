@@ -124,6 +124,9 @@ def test_never_raises_on_garbage(garbage):
         ("critical", Level.FATAL),
         ("information", Level.INFO),
         ("7", Level.FATAL),
+        ("30", Level.INFO),    # pino numeric: info
+        ("50", Level.ERROR),   # pino numeric: error
+        ("60", Level.FATAL),   # pino numeric: fatal
         ("bogus", None),
     ],
 )

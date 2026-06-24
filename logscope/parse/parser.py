@@ -41,6 +41,16 @@ _LEVEL_LETTERS: dict[str, Level] = {
     "f": Level.FATAL,
 }
 
+# pino / bunyan numeric levels (10=trace ... 60=fatal), common in Node.js.
+_PINO_LEVELS: dict[int, Level] = {
+    10: Level.TRACE,
+    20: Level.DEBUG,
+    30: Level.INFO,
+    40: Level.WARN,
+    50: Level.ERROR,
+    60: Level.FATAL,
+}
+
 # Last-resort scan of an unstructured message for a severity word.
 _LEVEL_SCAN = re.compile(
     r"\b(fatal|critical|error|warn(?:ing)?|debug|trace)\b", re.IGNORECASE
@@ -56,9 +66,11 @@ def normalize_level(value: Optional[str]) -> Optional[Level]:
         return _LEVEL_ALIASES[token]
     if len(token) == 1 and token in _LEVEL_LETTERS:
         return _LEVEL_LETTERS[token]
-    # Numeric severities (e.g. syslog 0-7): clamp into our range heuristically.
+    # Numeric severities. pino/bunyan use 10..60; our own enum is 0..5.
     if token.isdigit():
         n = int(token)
+        if n in _PINO_LEVELS:
+            return _PINO_LEVELS[n]
         if n >= 5:
             return Level.FATAL
         return Level(n) if 0 <= n <= 5 else None

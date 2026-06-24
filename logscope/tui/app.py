@@ -77,7 +77,7 @@ class SummaryScreen(ModalScreen):
 
     async def on_mount(self) -> None:
         if not self.summarizer.enabled:
-            self._set("AI summary unavailable — set OPENAI_API_KEY in .env to enable it.")
+            self._set("AI summary unavailable. Set OPENAI_API_KEY in .env to enable it.")
             return
         self._set("summarizing… (one moment)")
         self.run_worker(self._load(), exclusive=True)

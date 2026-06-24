@@ -17,6 +17,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Footer, Header, Input, RichLog
 
+from logscope.index.store import EventStore
 from logscope.ingest.source import Source
 from logscope.model import LogEvent
 from logscope.tui.widgets import matches_filter, render_event
@@ -35,9 +36,12 @@ class LogScopeApp(App):
     """
     BINDINGS = [("ctrl+c", "quit", "Quit")]
 
-    def __init__(self, sources: Iterable[Source]) -> None:
+    def __init__(
+        self, sources: Iterable[Source], store: EventStore | None = None
+    ) -> None:
         super().__init__()
         self.sources = list(sources)
+        self.store = store  # optional: persist tailed events for later search
         self.queue: asyncio.Queue[LogEvent] = asyncio.Queue(maxsize=QUEUE_MAXSIZE)
         self.buffer: deque[LogEvent] = deque(maxlen=BUFFER_SIZE)
         self.filter_text = ""
@@ -81,6 +85,8 @@ class LogScopeApp(App):
             except asyncio.QueueEmpty:
                 break
             self.buffer.append(event)
+            if self.store is not None:
+                self.store.add(event)  # buffered + batch-flushed internally
             if matches_filter(event, self.filter_text):
                 log.write(render_event(event))
                 wrote = True
@@ -100,4 +106,6 @@ class LogScopeApp(App):
         self._stop.set()
         for task in self._producers:
             task.cancel()
+        if self.store is not None:
+            self.store.close()  # flush buffered events to disk
         self.exit()

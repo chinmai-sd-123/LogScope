@@ -66,6 +66,14 @@ def test_bracketed_level():
     assert ev.message == "disk almost full"
 
 
+def test_leveled_strips_timestamp_with_tz_offset():
+    # ISO timestamp with a +HH:MM offset must be extracted, not left in message.
+    ev = parser.parse("INFO 2026-06-23T16:56:36.066266+00:00 request completed for session 1234")
+    assert ev.level == Level.INFO
+    assert ev.message == "request completed for session 1234"
+    assert ev.timestamp.year == 2026 and ev.timestamp.tzinfo is not None
+
+
 # --------------------------------------------------------------------------- #
 # Fallback + robustness (the non-negotiable property of a log tool)
 # --------------------------------------------------------------------------- #

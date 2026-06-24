@@ -109,10 +109,10 @@ def detect_logfmt(line: str) -> Optional[ParsedLine]:
 _LEVELED = re.compile(
     r"""
     ^\s*
-    (?:\[?(?P<ts1>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?Z?)\]?\s+)?  # optional leading ts
+    (?:\[?(?P<ts1>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\]?\s+)?  # optional leading ts
     \[?(?P<level>TRACE|DEBUG|INFO|INFORMATION|WARN|WARNING|ERROR|ERR|FATAL|CRITICAL)\]?
     \s+
-    (?:(?P<ts2>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?Z?)\s+)?         # optional trailing ts
+    (?:(?P<ts2>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s+)?         # optional trailing ts
     (?P<message>.*\S)\s*$
     """,
     re.IGNORECASE | re.VERBOSE,

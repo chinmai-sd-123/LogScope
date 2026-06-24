@@ -13,7 +13,8 @@ from collections import defaultdict, deque
 from typing import Iterable
 
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, RichLog, Sparkline, Static
 
 from logscope.ai.cache import SummaryCache
@@ -39,32 +40,75 @@ DRAIN_INTERVAL = 0.1   # seconds: how often we pull from the queue
 REFRESH_INTERVAL = 1.0  # seconds: how often we redraw clusters + sparkline
 
 
+class SummaryScreen(ModalScreen):
+    """Full-screen, scrollable popup with a cluster's AI root-cause summary.
+
+    A modal so a multi-paragraph summary is fully readable and the moving log
+    stream doesn't interfere while reading it.
+    """
+
+    CSS = """
+    SummaryScreen { align: center middle; background: $background 60%; }
+    #summary-box {
+        width: 80%; max-width: 100; height: 80%;
+        padding: 1 2; border: round $success; background: $panel;
+    }
+    #summary-title { text-style: bold; color: $success; margin-bottom: 1; }
+    #summary-hint { color: $text-muted; margin-top: 1; }
+    """
+    BINDINGS = [("escape", "dismiss", "Close"), ("q", "dismiss", "Close")]
+
+    def __init__(
+        self, ctx: ClusterContext, summarizer: Summarizer, cache: SummaryCache
+    ) -> None:
+        super().__init__()
+        self.ctx = ctx
+        self.summarizer = summarizer
+        self.cache = cache
+        self.body_text = ""  # mirror of the body, for tests
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="summary-box"):
+            yield Static(
+                f"Cluster ({self.ctx.count:,}x):  {self.ctx.template}", id="summary-title"
+            )
+            yield Static("", id="summary-body")
+            yield Static("[esc] close", id="summary-hint")
+
+    async def on_mount(self) -> None:
+        if not self.summarizer.enabled:
+            self._set("AI summary unavailable — set OPENAI_API_KEY in .env to enable it.")
+            return
+        self._set("summarizing… (one moment)")
+        self.run_worker(self._load(), exclusive=True)
+
+    async def _load(self) -> None:
+        summary = await summarize_cluster(self.ctx, self.summarizer, self.cache)
+        self._set(summary or "summary unavailable (provider error or timeout)")
+
+    def _set(self, text: str) -> None:
+        self.body_text = text
+        self.query_one("#summary-body", Static).update(text)
+
+
 class LogScopeApp(App):
     TITLE = "LogScope"
     CSS = """
     Screen { background: $surface; }
     #body { height: 1fr; padding: 0 1; }
     #stream {
-        width: 2fr; border: round $primary; background: $panel;
-        padding: 0 1; scrollbar-size-vertical: 1;
+        width: 2fr; min-width: 30; border: round $primary;
+        background: $panel; padding: 0 1;
     }
-    #side { width: 1fr; }
-    #clusters {
-        height: 2fr; border: round $secondary; background: $panel; padding: 0 1;
-    }
-    #spark { height: 7; border: round $warning; padding: 1 1; }
-    #detail {
-        height: 1fr; min-height: 6; border: round $success;
-        background: $panel; padding: 0 1; color: $text;
-    }
+    #side { width: 1fr; min-width: 34; }
+    #clusters { height: 1fr; border: round $secondary; background: $panel; padding: 0 1; }
+    #spark { height: 6; border: round $warning; padding: 1 1; }
     #filter { dock: bottom; border: tall $accent; }
-    .panel-title { text-style: bold; }
     """
     BINDINGS = [
         ("ctrl+c", "quit", "Quit"),
-        # ctrl+s rather than 's' so it fires even while the filter input is
-        # focused (a printable key would just be typed into the filter).
-        ("ctrl+s", "summarize", "Summarize top cluster"),
+        ("ctrl+s", "summarize", "AI summary"),
+        ("f2", "toggle_pause", "Pause/Resume"),
     ]
 
     def __init__(
@@ -82,7 +126,7 @@ class LogScopeApp(App):
         self.drain = Drain()
         # A few representative raw lines per template, for AI grounding context.
         self._samples: dict[int, deque[str]] = defaultdict(lambda: deque(maxlen=20))
-        self._detail_text = ""  # mirrors the detail pane, for observability/tests
+        self.paused = False  # freeze the stream pane for reading (f2)
         # Error-rate detector: counts ERROR+ events per bucket for the sparkline.
         self.detector = AnomalyDetector(bucket_seconds=2, window=30, k=3.0, min_count=5)
 
@@ -100,7 +144,6 @@ class LogScopeApp(App):
             with Vertical(id="side"):
                 yield Static(id="clusters")
                 yield Sparkline([0], id="spark", summary_function=max)
-                yield Static("press [b]ctrl+s[/] to summarize the top cluster", id="detail")
         yield Input(placeholder="filter (substring over message/source)…", id="filter")
         yield Footer()
 
@@ -109,7 +152,6 @@ class LogScopeApp(App):
         self.query_one("#stream").border_title = "Live stream"
         self.query_one("#clusters").border_title = "Clusters (ranked by volume)"
         self.query_one("#spark").border_title = "Error rate"
-        self.query_one("#detail").border_title = "Cluster summary  (ctrl+s)"
         self.sub_title = "starting…"
 
         for source in self.sources:
@@ -157,7 +199,7 @@ class LogScopeApp(App):
                 if bucket is not None:
                     self._spark_data = self.detector.recent_counts() or [0]
 
-            if matches_filter(event, self.filter_text):
+            if not self.paused and matches_filter(event, self.filter_text):
                 log.write(render_event(event))
                 wrote = True
         if wrote:
@@ -181,15 +223,11 @@ class LogScopeApp(App):
             if matches_filter(event, self.filter_text):
                 log.write(render_event(event))
 
-    def _set_detail(self, text: str) -> None:
-        self._detail_text = text
-        self.query_one("#detail", Static).update(text)
-
     def action_summarize(self) -> None:
-        """On demand (pull, not push): summarize the top-ranked cluster."""
+        """Open a scrollable popup with the top cluster's AI summary."""
         templates = self.drain.templates
         if not templates:
-            self._set_detail("no clusters yet")
+            self.notify("No clusters yet.")
             return
         top = templates[0]
         ctx = ClusterContext(
@@ -197,15 +235,12 @@ class LogScopeApp(App):
             count=top.count,
             sample_lines=list(self._samples.get(top.id, [])),
         )
-        if not self.summarizer.enabled:
-            self._set_detail("AI summary unavailable (no provider configured).")
-            return
-        self._set_detail("summarizing…")
-        self.run_worker(self._do_summarize(ctx), exclusive=True)
+        self.push_screen(SummaryScreen(ctx, self.summarizer, self.cache))
 
-    async def _do_summarize(self, ctx: ClusterContext) -> None:
-        summary = await summarize_cluster(ctx, self.summarizer, self.cache)
-        self._set_detail(summary if summary else "summary unavailable")
+    def action_toggle_pause(self) -> None:
+        self.paused = not self.paused
+        title = "Live stream  ⏸ PAUSED" if self.paused else "Live stream"
+        self.query_one("#stream").border_title = title
 
     async def action_quit(self) -> None:
         self._stop.set()

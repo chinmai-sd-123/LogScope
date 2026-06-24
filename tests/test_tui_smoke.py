@@ -86,14 +86,30 @@ async def test_clustering_runs_in_app():
 
 
 @pytest.mark.asyncio
-async def test_summarize_action_degrades_without_provider():
-    # No summarizer configured -> the detail pane shows 'unavailable', no crash.
+async def test_summarize_action_opens_modal_and_degrades_without_provider():
+    # No summarizer configured -> the popup shows 'unavailable', no crash.
+    from logscope.tui.app import SummaryScreen
+
     events = [_ev("worker 1 failed"), _ev("worker 2 failed")]
     app = LogScopeApp([FakeSource(events)])  # default NullSummarizer
     async with app.run_test() as pilot:
         await pilot.pause()
         await asyncio.sleep(0.2)
         await pilot.pause()
-        app.action_summarize()  # invoke directly (the 's' binding is intercepted
-        await pilot.pause()      # by the focused filter input)
-        assert "unavailable" in app._detail_text.lower()
+        app.action_summarize()  # opens the modal popup
+        await pilot.pause()
+        assert isinstance(app.screen, SummaryScreen)
+        assert "unavailable" in app.screen.body_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_pause_toggle():
+    events = [_ev("a"), _ev("b")]
+    app = LogScopeApp([FakeSource(events)])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.paused is False
+        app.action_toggle_pause()
+        assert app.paused is True
+        app.action_toggle_pause()
+        assert app.paused is False

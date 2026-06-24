@@ -139,3 +139,23 @@ effectively-once without the coordination cost of true exactly-once. Backoff
 favors fresh data and is a documented, deliberate policy. Rejected: msgpack
 (smaller but opaque — debuggability won for a portfolio tool); exactly-once
 (disproportionate complexity).
+
+---
+
+## D9 — AI is additive, on-demand, cached, and degrades gracefully
+
+**Context.** The deterministic core already answers "what is happening". AI can
+add "what might it mean / what to check first" — but must never be load-bearing.
+
+**Choice.** A `Summarizer` interface (OpenAI implementation via httpx; a Null
+default) invoked only when the user presses ctrl+s on a cluster. Results are
+cached by template fingerprint, bounded by a hard timeout and token cap, and any
+failure (disabled/timeout/network/bad response) returns `None`.
+
+**Why.** Pull-not-push controls cost and latency and shows restraint — the single
+design choice that most signals judgment. Caching by *template fingerprint* (not
+raw lines) makes the cache actually hit across incidents of the same shape.
+Graceful degradation is built and tested first-class: with no `OPENAI_API_KEY`
+the tool is fully functional and the pane reads "unavailable". The provider sits
+behind an interface so the backend is swappable. Rejected: AI on every event
+(cost/latency/noise); making any feature depend on the model.

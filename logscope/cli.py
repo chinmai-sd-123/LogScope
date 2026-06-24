@@ -35,13 +35,16 @@ def tail(
     ),
 ) -> None:
     """Live-tail one or more files in a filterable TUI."""
+    from logscope.ai.summarizer import OpenAISummarizer
     from logscope.index.store import EventStore
     from logscope.ingest.source import FileSource
     from logscope.tui.app import LogScopeApp
 
     sources = [FileSource(p, from_start=from_start) for p in paths]
     store = None if no_store else EventStore(db)
-    LogScopeApp(sources, store=store).run()
+    # Self-disables when OPENAI_API_KEY is absent; the TUI degrades gracefully.
+    summarizer = OpenAISummarizer()
+    LogScopeApp(sources, store=store, summarizer=summarizer).run()
 
 
 @app.command()

@@ -83,3 +83,17 @@ async def test_clustering_runs_in_app():
         templates = app.drain.templates
         assert len(templates) == 1
         assert templates[0].count == 3
+
+
+@pytest.mark.asyncio
+async def test_summarize_action_degrades_without_provider():
+    # No summarizer configured -> the detail pane shows 'unavailable', no crash.
+    events = [_ev("worker 1 failed"), _ev("worker 2 failed")]
+    app = LogScopeApp([FakeSource(events)])  # default NullSummarizer
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+        app.action_summarize()  # invoke directly (the 's' binding is intercepted
+        await pilot.pause()      # by the focused filter input)
+        assert "unavailable" in app._detail_text.lower()

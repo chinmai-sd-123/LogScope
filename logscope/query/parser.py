@@ -1,9 +1,7 @@
-"""Parse a token stream into a :class:`Query` AST.
+"""Parse a token stream into a Query AST.
 
-A hand-written recursive-descent-style parser over a flat token list. The
-grammar is AND-only and regular, so this stays small -- a deliberate choice to
-ship a correct little language rather than a buggy big one (OR/NOT/parens are a
-documented stretch goal).
+A small hand-written parser over the flat token list. The grammar is AND-only;
+OR/NOT/parentheses are not supported.
 """
 
 from __future__ import annotations

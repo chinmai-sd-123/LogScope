@@ -1,15 +1,9 @@
 """Event persistence and search backed by SQLite + FTS5.
 
-SQLite ships with Python and includes FTS5, giving indexed full-text search with
-zero external services -- right-sized for a single-node tool. Design points:
-
-* **Batched writes.** Events buffer in memory and flush in one transaction, the
-  difference between thousands and tens of thousands of inserts/second.
-* **External-content FTS.** ``content='events'`` makes the FTS index reference
-  the base table instead of duplicating message text; triggers keep them synced.
-* **Idempotent inserts.** Each event has a stable ``event_id`` (hash of
-  source+raw+timestamp) with ``INSERT OR IGNORE``, so re-ingesting a duplicate
-  (e.g. an agent resend in Phase 4) is a no-op.
+Events buffer in memory and flush in a single transaction. The FTS index uses
+external content (content='events') so message text isn't stored twice; triggers
+keep it in sync. Each event has a stable event_id (hash of source+raw+timestamp)
+inserted with INSERT OR IGNORE, so duplicate ingestion is a no-op.
 """
 
 from __future__ import annotations
@@ -17,10 +11,12 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional
 
+from logscope.metrics import Histogram
 from logscope.model import Level, LogEvent
 from logscope.query.ast import Query
 
@@ -34,7 +30,7 @@ CREATE TABLE IF NOT EXISTS events (
     message     TEXT NOT NULL,
     raw         TEXT NOT NULL,
     fields      TEXT,                       -- JSON blob
-    template_id INTEGER
+    template_id INTEGER                      -- Drain cluster id (per-session)
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_events_level ON events(level);
@@ -82,6 +78,7 @@ class EventStore:
             self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)
         self._buffer: List[tuple] = []
+        self.query_latency_ms = Histogram()  # records each search's wall time
 
     # -- writes ------------------------------------------------------------ #
 
@@ -108,7 +105,7 @@ class EventStore:
             self.add(ev)
 
     def flush(self) -> None:
-        """Write buffered events in a single transaction (the throughput lever)."""
+        """Write buffered events in a single transaction."""
         if not self._buffer:
             return
         with self._conn:  # transaction
@@ -125,6 +122,7 @@ class EventStore:
     def search(self, query: Query, *, limit: int = 100) -> List[LogEvent]:
         """Compile the AST to SQL + FTS and return matching events, newest first."""
         self.flush()  # make buffered events searchable
+        started = time.perf_counter()
 
         where: List[str] = []
         params: List = []
@@ -151,7 +149,9 @@ class EventStore:
         params.append(limit)
 
         rows = self._conn.execute(sql, params).fetchall()
-        return [self._row_to_event(r) for r in rows]
+        results = [self._row_to_event(r) for r in rows]
+        self.query_latency_ms.observe((time.perf_counter() - started) * 1000)
+        return results
 
     def count(self) -> int:
         self.flush()

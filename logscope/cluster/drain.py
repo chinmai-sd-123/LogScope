@@ -1,32 +1,17 @@
 """Drain: an online log-template miner.
 
-A single failing code path emits thousands of near-identical lines that differ
-only in IDs, numbers, and timestamps. Drain collapses them into one *template*
-with a count -- the single most useful thing this tool does.
+Collapses near-identical log lines (differing only in ids/numbers/timestamps)
+into templates with a count. A fixed-depth parse tree keeps the work per line
+roughly constant regardless of how many templates exist:
 
-Why Drain specifically: it mines templates in near-constant time per line using a
-**fixed-depth parse tree**, so cost does not grow with the number of templates
-seen. The tree:
+    root -> length group -> first N tokens -> leaf (candidate templates)
 
-    depth 0 (root)
-      -> length group        (token count; messages of different length differ)
-        -> first token
-          -> ... (up to `depth` leading tokens) ...
-            -> leaf: a short list of candidate templates
+At the leaf, the message is compared to each candidate by the fraction of
+matching token positions (<*> is a wildcard). Above sim_threshold it merges
+(differing positions become <*>); otherwise a new template is created.
 
-At the leaf we compare the message to each candidate by *similarity* (fraction of
-matching positions, treating ``<*>`` as a wildcard). Above a threshold we merge
-(generalizing differing positions to ``<*>``); otherwise we create a new
-template. The fixed depth is what bounds the work per line.
-
-Tuning knobs and their trade-offs:
-  * ``depth``         deeper = more specific branching, fewer leaf comparisons,
-                      but risks splitting templates that vary in a leading token.
-  * ``sim_threshold`` higher = stricter matching (more, finer templates);
-                      lower = looser (fewer, coarser templates). Over- vs.
-                      under-merging is the central tension.
-  * ``max_children``  caps fan-out per node; excess tokens collapse into a ``<*>``
-                      branch to keep the tree bounded.
+Tuning: depth (number of prefix layers), sim_threshold (match strictness),
+max_children (fan-out cap; overflow collapses into a shared <*> branch).
 """
 
 from __future__ import annotations

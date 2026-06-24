@@ -1,9 +1,7 @@
-"""A semantic cache keyed on a cluster's template fingerprint.
+"""A small LRU cache keyed on a cluster's template fingerprint.
 
-Identical clusters never trigger a second provider call. Keying on the *template*
-fingerprint (the generalized line plus salient field keys) rather than raw lines
-is what makes the cache actually hit -- two incidents with the same shape share
-an entry even though their concrete IDs differ.
+Keying on the template fingerprint rather than raw lines means two incidents with
+the same shape (but different ids) share a cache entry.
 """
 
 from __future__ import annotations

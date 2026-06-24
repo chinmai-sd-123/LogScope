@@ -1,10 +1,8 @@
 """The query AST.
 
-A :class:`Query` is a conjunction (AND) of independent terms. Each term knows
-how to render itself two ways: as a SQL fragment (for history) and as a Python
-predicate (for the live stream). Sharing one AST across both targets is the
-design payoff of building a real little language rather than ad-hoc string
-matching.
+A Query is a conjunction (AND) of terms. Each term renders two ways: a
+parameterized SQL fragment for history (to_sql) and a Python predicate for the
+live stream (to_predicate), so one AST serves both evaluation targets.
 """
 
 from __future__ import annotations

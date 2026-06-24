@@ -1,8 +1,7 @@
-"""The parser: a raw line in, a :class:`~logscope.model.LogEvent` out.
+"""The parser: a raw line in, a LogEvent out.
 
-Hard guarantee: :meth:`Parser.parse` never raises and always returns an event,
-even on garbage input. A log tool that crashes on a malformed line is useless,
-because malformed lines are precisely what logs are full of.
+Parser.parse never raises and always returns an event, even on garbage input --
+malformed lines are common in real logs.
 """
 
 from __future__ import annotations
@@ -98,8 +97,7 @@ class Parser:
                 fields = parsed.fields
                 break
         except Exception:
-            # Detection must never sink the whole pipeline. Fall through to the
-            # unstructured path with whatever we have.
+            # Detection failed; fall through to the unstructured path.
             message, level, timestamp, fields = raw, None, None, {}
 
         # Fallbacks: a level scan on the message, and ingest time for the clock.

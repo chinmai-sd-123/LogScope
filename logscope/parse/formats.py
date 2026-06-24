@@ -1,10 +1,8 @@
 """Format detectors.
 
-Each detector takes a raw line and returns a ``ParsedLine`` if it recognizes
-the format, or ``None`` to let the next detector try. Detectors must never
-raise -- logs are exactly where malformed data lives, so robustness is
-non-negotiable. The :class:`~logscope.parse.parser.Parser` tries them in order
-and falls back to treating the whole line as an unstructured message.
+Each detector takes a raw line and returns a ParsedLine if it recognizes the
+format, or None to let the next one try. Detectors must not raise. The Parser
+tries them in order and falls back to treating the line as unstructured.
 """
 
 from __future__ import annotations

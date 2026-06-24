@@ -1,9 +1,8 @@
 """The central server: accept event batches from agents and persist them.
 
-Ingestion is idempotent -- the store keys on a stable ``event_id`` and uses
-``INSERT OR IGNORE`` -- so a duplicate batch (an agent resend after a lost ack)
-has no extra effect. Combined with the agent's at-least-once delivery, this gives
-effectively-once semantics without the cost of true exactly-once.
+Ingestion is idempotent (the store keys on a stable event_id with INSERT OR
+IGNORE), so a resent batch after a lost ack has no extra effect. With the agent's
+at-least-once delivery this gives effectively-once semantics.
 """
 
 from __future__ import annotations
@@ -41,8 +40,14 @@ class Server:
                 try:
                     agent_id, events = decode_batch(payload)
                 except ValueError as exc:
-                    log.warning("bad batch from %s: %s", peer, exc)
-                    continue  # skip a malformed/old-version batch, keep the conn
+                    # Drop a malformed/old-version batch, but still ACK it: the
+                    # agent is blocked waiting for an ack, and not sending one
+                    # would deadlock it (and an unacked poison batch would be
+                    # resent forever). Dropping + acking is the safe policy.
+                    log.warning("bad batch from %s: %s (dropped, acking)", peer, exc)
+                    writer.write(b"\x06")
+                    await writer.drain()
+                    continue
                 self.store.add_many(events)
                 self.store.flush()  # durable before we ack
                 self.events_received += len(events)
@@ -63,9 +68,13 @@ class Server:
             await self._server.serve_forever()
 
     async def start(self) -> int:
-        """Start serving in the background; return the bound port (for tests)."""
+        """Start serving in the background; return the bound port.
+
+        ``start_server`` already begins accepting connections, so no
+        ``serve_forever`` task is needed here (that is only used by the blocking
+        CLI entrypoint).
+        """
         self._server = await asyncio.start_server(self._handle, self.host, self.port)
-        asyncio.create_task(self._server.serve_forever())
         return self._server.sockets[0].getsockname()[1]
 
     async def stop(self) -> None:

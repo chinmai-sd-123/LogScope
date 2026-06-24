@@ -1,13 +1,9 @@
 """The wire protocol: length-prefixed JSON frames carrying event batches.
 
-A raw TCP stream has no message boundaries, so we frame every payload with a
-4-byte big-endian length prefix, then read exactly that many bytes back. This is
-the fundamental fix for the "where does one message end" problem.
-
-Payload: a JSON object ``{version, agent_id, events: [...]}``. JSON is chosen for
-debuggability (you can tcpdump and read it) at the cost of some size; every frame
-carries a schema ``version`` so a server can reject or adapt to mismatched agents
-(forward/backward compatibility).
+TCP has no message boundaries, so each payload is framed with a 4-byte
+big-endian length prefix and read back with readexactly. The payload is a JSON
+object {version, agent_id, events: [...]}; the version lets the server reject or
+adapt to mismatched agents.
 """
 
 from __future__ import annotations

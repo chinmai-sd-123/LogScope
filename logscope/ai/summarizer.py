@@ -1,17 +1,10 @@
-"""Cluster summarization with strict guardrails.
+"""Optional cluster summarization.
 
-Design rules (the senior signal of this phase):
-
-* **Additive, never required.** A disabled/failed/slow provider yields ``None``;
-  the tool keeps working.
-* **Cached by fingerprint.** Identical clusters never call twice.
-* **Bounded.** Hard per-call timeout; we send a *sample* of representative lines
-  plus the template/count/time-range, never thousands of raw lines.
-* **Grounded.** We ask for a hypothesis with explicit uncertainty and instruct
-  the model to say "insufficient information" rather than invent.
-
-The provider is abstracted behind :class:`Summarizer` so OpenAI can be swapped
-for another backend (or a fake, in tests) without touching the orchestration.
+The summarizer is additive: a disabled, slow, or failing provider returns None
+and the tool keeps working. Results are cached by template fingerprint and bounded
+by a timeout, and we send a sample of lines plus the template/count rather than
+the full cluster. The provider sits behind the Summarizer interface so the
+backend (OpenAI here) can be swapped or faked in tests.
 """
 
 from __future__ import annotations

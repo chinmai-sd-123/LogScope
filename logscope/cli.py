@@ -18,6 +18,21 @@ app = typer.Typer(
     help="A terminal-native log-intelligence and incident-triage tool.",
 )
 
+
+@app.callback()
+def _bootstrap() -> None:
+    """Runs before any subcommand: load .env into the environment."""
+    from logscope.config import load_env
+
+    load_env()
+
+
+def _default_db() -> Path:
+    import os
+
+    return Path(os.environ.get("LOGSCOPE_DB", "logscope.db"))
+
+
 DEFAULT_DB = Path("logscope.db")
 
 
@@ -73,13 +88,14 @@ def search(
 
     with EventStore(db) as store:
         results = store.search(parsed, limit=limit)
+        took_ms = store.query_latency_ms.percentile(100)  # this query's latency
 
     if not results:
-        console.print("[dim]no matches.[/]")
+        console.print(f"[dim]no matches. ({took_ms:.1f} ms)[/]")
         return
     for event in reversed(results):  # print oldest-first so newest is at the bottom
         console.print(render_event(event))
-    console.print(f"[dim]{len(results)} match(es).[/]")
+    console.print(f"[dim]{len(results)} match(es) in {took_ms:.1f} ms.[/]")
 
 
 @app.command()

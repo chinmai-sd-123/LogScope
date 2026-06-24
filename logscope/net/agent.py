@@ -1,16 +1,13 @@
 """The agent: tail local logs and ship batched events to the server.
 
-This is where the distributed-systems care lives -- the unhappy paths:
+Handles the failure paths:
 
-* **Batching.** Accumulate events and flush every N events or T seconds,
-  whichever comes first, to amortize per-message overhead.
-* **Reconnection.** On connection loss, retry with exponential backoff + jitter
-  (capped) so a fleet of agents doesn't thundering-herd the server on recovery.
-* **Local buffering.** While disconnected, events queue in a bounded spool. When
-  it's full we drop the *oldest* (favor fresh data) -- a deliberate, documented
-  policy, not an accident.
-* **At-least-once delivery.** We resend a batch until acked; a lost ack causes a
-  duplicate, which the server de-dups by stable event id.
+  - Batching: flush every N events or T seconds, whichever comes first.
+  - Reconnect with exponential backoff + jitter (capped) to avoid a thundering
+    herd when a downed server recovers.
+  - Bounded local spool while disconnected; drop-oldest when full.
+  - At-least-once: resend a batch until acked. Duplicates from a lost ack are
+    de-duped server-side by stable event id.
 """
 
 from __future__ import annotations
@@ -19,6 +16,7 @@ import asyncio
 import logging
 import random
 from collections import deque
+from itertools import islice
 from typing import Deque, List, Optional
 
 from logscope.ingest.source import Source
@@ -95,8 +93,8 @@ class Agent:
                 await asyncio.sleep(self.flush_interval)
                 continue
 
-            # Take a batch but DON'T discard it until the server acks (at-least-once).
-            batch = list(self.spool)[: self.batch_size]
+            # Keep the batch in the spool until the server acks (at-least-once).
+            batch = list(islice(self.spool, self.batch_size))
             try:
                 await write_frame(writer, encode_batch(self.agent_id, batch))
                 ack = await reader.readexactly(1)  # wait for the server ACK

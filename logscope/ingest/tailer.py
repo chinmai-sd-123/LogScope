@@ -1,16 +1,11 @@
 """File tailing that survives rotation and truncation.
 
-The naive ``open`` + ``readline`` loop breaks the moment a log rotates: the OS
-renames the active file and creates a fresh one at the same path, and the naive
-tailer keeps reading the now-orphaned old handle forever. A real tailer detects
-rotation and reopens.
+A plain readline loop keeps reading the old handle after a log rotates. We detect
+rotation two ways so it works across platforms (incl. Windows/NTFS):
 
-Rotation detection here uses two independent signals so it works across
-platforms (including Windows/NTFS, where inode semantics differ from Linux):
-
-* **inode/file-id change** -- the path now points at a different file.
-* **truncation** -- the file shrank below our current read offset (covers
-  ``> file`` style truncation and rotation where inode is unavailable).
+  - file-id change: the path now points at a different file.
+  - truncation: the file shrank below our read offset (covers `> file` and
+    rotation where the inode is unavailable).
 """
 
 from __future__ import annotations

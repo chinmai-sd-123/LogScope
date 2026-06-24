@@ -90,6 +90,36 @@ async def test_idempotent_redelivery():
 
 
 @pytest.mark.asyncio
+async def test_bad_frame_is_acked_not_hung():
+    # A malformed/old-version frame must be dropped AND acked, or the agent
+    # blocks forever waiting on an ack. Send a bad frame then a good one over a
+    # raw connection and check both get acked and the good event lands.
+    import struct
+
+    from logscope.net.protocol import encode_batch
+
+    store = EventStore(":memory:")
+    server = Server(store, host="127.0.0.1", port=0)
+    port = await server.start()
+
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    bad = b'{"version": 999, "events": []}'  # wrong version
+    good = encode_batch("agent-x", [_ev("real event")])
+    for payload in (bad, good):
+        writer.write(struct.pack(">I", len(payload)) + payload)
+    await writer.drain()
+
+    ack1 = await asyncio.wait_for(reader.readexactly(1), timeout=2.0)
+    ack2 = await asyncio.wait_for(reader.readexactly(1), timeout=2.0)
+    assert ack1 == b"\x06" and ack2 == b"\x06"
+    assert store.count() == 1  # only the good batch stored
+
+    writer.close()
+    await server.stop()
+    store.close()
+
+
+@pytest.mark.asyncio
 async def test_no_loss_when_server_dies_and_recovers():
     store = EventStore(":memory:")
     server = Server(store, host="127.0.0.1", port=0)

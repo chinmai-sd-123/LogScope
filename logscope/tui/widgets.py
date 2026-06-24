@@ -50,10 +50,17 @@ def matches_filter(event: LogEvent, needle: str) -> bool:
 
 
 def render_cluster_table(templates: Sequence[Template], top_n: int = 12) -> Table:
-    """Render the top templates as a ranked count/template table."""
-    table = Table(expand=True, show_edge=False, pad_edge=False)
-    table.add_column("count", justify="right", style="bold cyan", width=7)
-    table.add_column("template", style="white", no_wrap=True)
-    for template in templates[:top_n]:
-        table.add_row(f"{template.count:,}", template.as_string())
+    """Render the top templates as a ranked count + bar + template table."""
+    table = Table(expand=True, show_edge=False, pad_edge=False, box=None, padding=(0, 1, 0, 0))
+    table.add_column("count", justify="right", width=7)
+    table.add_column("", width=8)  # proportional bar
+    table.add_column("template", no_wrap=True, overflow="ellipsis", ratio=1)
+
+    top = list(templates[:top_n])
+    max_count = max((t.count for t in top), default=1) or 1
+    for template in top:
+        bar_len = round(8 * template.count / max_count)
+        count = Text(f"{template.count:,}", style="bold cyan")
+        bar = Text("█" * bar_len, style="cyan")
+        table.add_row(count, bar, template.as_string())
     return table

@@ -1,14 +1,9 @@
 """The Textual app: live stream + cluster panel + error-rate sparkline.
 
-Architecture seam worth pointing at: the TUI never reads files. Producer
-coroutines tail sources and push :class:`LogEvent`s onto a *bounded* queue; the
-UI drains that queue on a timer. The bound gives backpressure for free, and the
-decoupling means a network source can later replace the file source without the
-UI changing at all.
-
-Each drained event fans out to three independent consumers -- the optional
-store (history), the Drain miner (clusters), and the anomaly detector (spikes) --
-exactly mirroring the processing stage of the pipeline.
+Producer coroutines tail sources and push events onto a bounded queue; the UI
+drains it on a timer. The TUI never reads files directly, so the source can be
+swapped without UI changes. Each drained event is fed to the store, the Drain
+miner, and the anomaly detector.
 """
 
 from __future__ import annotations
@@ -32,11 +27,12 @@ from logscope.anomaly.detector import AnomalyDetector
 from logscope.cluster.drain import Drain
 from logscope.index.store import EventStore
 from logscope.ingest.source import Source
+from logscope.metrics import Metrics
 from logscope.model import Level, LogEvent
 from logscope.tui.widgets import matches_filter, render_cluster_table, render_event
 
-# Bounded so a firehose source can never balloon memory: a full queue makes the
-# producer await (backpressure). The ring buffer caps what we keep for redraws.
+# Bounded queue gives backpressure (producer awaits when full); the ring buffer
+# caps what we keep in memory for redraws.
 QUEUE_MAXSIZE = 1000
 BUFFER_SIZE = 2000
 DRAIN_INTERVAL = 0.1   # seconds: how often we pull from the queue
@@ -44,14 +40,25 @@ REFRESH_INTERVAL = 1.0  # seconds: how often we redraw clusters + sparkline
 
 
 class LogScopeApp(App):
+    TITLE = "LogScope"
     CSS = """
-    #body { height: 1fr; }
-    #stream { width: 2fr; border: round $primary; }
+    Screen { background: $surface; }
+    #body { height: 1fr; padding: 0 1; }
+    #stream {
+        width: 2fr; border: round $primary; background: $panel;
+        padding: 0 1; scrollbar-size-vertical: 1;
+    }
     #side { width: 1fr; }
-    #clusters { height: 1fr; border: round $secondary; }
-    #spark { height: 5; border: round $warning; }
-    #detail { height: auto; max-height: 12; border: round $success; }
+    #clusters {
+        height: 2fr; border: round $secondary; background: $panel; padding: 0 1;
+    }
+    #spark { height: 7; border: round $warning; padding: 1 1; }
+    #detail {
+        height: 1fr; min-height: 6; border: round $success;
+        background: $panel; padding: 0 1; color: $text;
+    }
     #filter { dock: bottom; border: tall $accent; }
+    .panel-title { text-style: bold; }
     """
     BINDINGS = [
         ("ctrl+c", "quit", "Quit"),
@@ -71,6 +78,7 @@ class LogScopeApp(App):
         self.store = store
         self.summarizer: Summarizer = summarizer or NullSummarizer()
         self.cache = SummaryCache()
+        self.metrics = Metrics()
         self.drain = Drain()
         # A few representative raw lines per template, for AI grounding context.
         self._samples: dict[int, deque[str]] = defaultdict(lambda: deque(maxlen=20))
@@ -97,6 +105,13 @@ class LogScopeApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
+        # Titled borders make each pane self-explanatory.
+        self.query_one("#stream").border_title = "Live stream"
+        self.query_one("#clusters").border_title = "Clusters (ranked by volume)"
+        self.query_one("#spark").border_title = "Error rate"
+        self.query_one("#detail").border_title = "Cluster summary  (ctrl+s)"
+        self.sub_title = "starting…"
+
         for source in self.sources:
             self._producers.append(asyncio.create_task(self._produce(source)))
         self.set_interval(DRAIN_INTERVAL, self._drain)
@@ -106,7 +121,7 @@ class LogScopeApp(App):
     async def _produce(self, source: Source) -> None:
         try:
             async for event in source.events(stop=self._stop):
-                await self.queue.put(event)  # await on full queue == backpressure
+                await self.queue.put(event)  # blocks when full (backpressure)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # a bad source must not crash the app
@@ -123,11 +138,20 @@ class LogScopeApp(App):
             except asyncio.QueueEmpty:
                 break
 
+            # Cluster first, then tag the event with its template id so the
+            # stored row records which cluster it belongs to.
+            template = self.drain.add_message(event.message)
+            event = event.with_template(template.id)
+            self._samples[template.id].append(event.raw)
+
             self.buffer.append(event)
             if self.store is not None:
                 self.store.add(event)
-            template = self.drain.add_message(event.message)
-            self._samples[template.id].append(event.raw)
+
+            now_ms = event.ingest_ts.timestamp() * 1000 if event.ingest_ts else 0
+            lag_ms = max(0.0, now_ms - event.timestamp.timestamp() * 1000)
+            self.metrics.record_event(lag_ms)
+
             if event.level >= Level.ERROR:
                 bucket = self.detector.add(int(event.timestamp.timestamp() * 1000))
                 if bucket is not None:
@@ -144,6 +168,10 @@ class LogScopeApp(App):
             render_cluster_table(self.drain.templates)
         )
         self.query_one("#spark", Sparkline).data = self._spark_data or [0]
+        # Update self-metrics and surface them in the header.
+        self.metrics.queue_depth.set(self.queue.qsize())
+        self.metrics.cluster_count.set(len(self.drain.templates))
+        self.sub_title = self.metrics.status_line(ai_hit_rate=self.cache.hit_rate)
 
     def on_input_changed(self, message: Input.Changed) -> None:
         self.filter_text = message.value

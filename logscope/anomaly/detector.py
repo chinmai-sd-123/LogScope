@@ -1,18 +1,9 @@
-"""Sliding-window spike detection.
+"""Sliding-window spike detection using a rolling z-score.
 
-Deliberately transparent statistics, not a black-box model: an on-call engineer
-at 3 a.m. needs "this bucket is 4 standard deviations above the last five
-minutes" (actionable) rather than "anomaly score 0.87" (not). That explainability
-is the design choice worth defending.
-
-Method:
-  * Bucket events into fixed time windows (e.g. 10s).
-  * Keep a rolling baseline of the last N completed buckets' counts.
-  * Flag a bucket whose count exceeds ``mean + k * stddev`` (z-score), with an
-    absolute floor so we don't fire on tiny numbers (3 vs a baseline of ~0).
-
-The window is maintained *incrementally* -- running sum and sum-of-squares
-updated on push/pop -- so each tick is O(1) rather than O(N).
+Events are bucketed into fixed time windows. A bucket is flagged when its count
+exceeds mean + k*stddev over the last N buckets, with an absolute floor so tiny
+counts (e.g. 0 -> 3) don't fire. The window keeps a running sum and sum-of-squares
+so each update is O(1) rather than recomputing over the window.
 """
 
 from __future__ import annotations

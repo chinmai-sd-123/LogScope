@@ -1,9 +1,8 @@
-"""Source abstraction: anything that produces :class:`LogEvent`s.
+"""Source abstraction: anything that produces LogEvents.
 
-A source ties a stream of raw lines to a :class:`Parser` and labels every event
-with its origin. Decoupling "where lines come from" behind this interface is the
-seam that lets a file source later be swapped for a network source without the
-TUI or processing stages changing -- they only ever see ``LogEvent``s.
+A source ties a stream of raw lines to a Parser and labels each event with its
+origin. Downstream stages only see LogEvents, so a file source can be swapped for
+a network source without changing them.
 """
 
 from __future__ import annotations

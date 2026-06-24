@@ -56,7 +56,7 @@ class SummaryScreen(ModalScreen):
     #summary-title { text-style: bold; color: $success; margin-bottom: 1; }
     #summary-hint { color: $text-muted; margin-top: 1; }
     """
-    BINDINGS = [("escape", "dismiss", "Close"), ("q", "dismiss", "Close")]
+    BINDINGS = [("escape", "close", "Close"), ("q", "close", "Close")]
 
     def __init__(
         self, ctx: ClusterContext, summarizer: Summarizer, cache: SummaryCache
@@ -89,6 +89,9 @@ class SummaryScreen(ModalScreen):
     def _set(self, text: str) -> None:
         self.body_text = text
         self.query_one("#summary-body", Static).update(text)
+
+    def action_close(self) -> None:
+        self.dismiss()
 
 
 class LogScopeApp(App):

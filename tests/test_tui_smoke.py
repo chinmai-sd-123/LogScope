@@ -103,6 +103,23 @@ async def test_summarize_action_opens_modal_and_degrades_without_provider():
 
 
 @pytest.mark.asyncio
+async def test_summary_modal_closes_on_escape():
+    from logscope.tui.app import SummaryScreen
+
+    app = LogScopeApp([FakeSource([_ev("worker 1 failed"), _ev("worker 2 failed")])])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await asyncio.sleep(0.2)
+        await pilot.pause()
+        app.action_summarize()
+        await pilot.pause()
+        assert isinstance(app.screen, SummaryScreen)
+        await pilot.press("escape")          # the close binding
+        await pilot.pause()
+        assert not isinstance(app.screen, SummaryScreen)  # back to the main screen
+
+
+@pytest.mark.asyncio
 async def test_pause_toggle():
     events = [_ev("a"), _ev("b")]
     app = LogScopeApp([FakeSource(events)])

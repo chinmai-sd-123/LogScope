@@ -33,5 +33,7 @@ Thumbs.db
 .env
 *.local
 
-# Local-only demo helpers (not part of the published project)
+# Local-only files (kept on disk, not published)
 demo/
+docs/decisions.md
+logscope-handbook.md

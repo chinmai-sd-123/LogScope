@@ -10,6 +10,7 @@ history, and can optionally suggest what went wrong using AI.
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
+
 <p align="center">
   <img src="docs/images/tui.png" alt="LogScope live view" width="100%">
   <br>
@@ -65,23 +66,22 @@ fully optional.
 
 The system is a pipeline. Each stage is small and tested on its own.
 
-```
- SOURCES         INGEST          PARSE          PROCESSING            SINKS
- files,    -->   tail,    -->    line to   -->  index (FTS5)    -->   live view,
- agents         batch,          LogEvent       cluster (Drain)       search,
-                backpressure                   anomaly (z-score)     storage
-                                                     |
-                                                     v
-                                                 AI summary
-                                               (optional, cached)
+```mermaid
+flowchart LR
+    SRC["Sources<br/>files, agents"] --> ING["Ingest<br/>tail, batch,<br/>backpressure"]
+    ING --> PAR["Parse<br/>line to LogEvent"]
+    PAR --> IDX["Index<br/>SQLite + FTS5"]
+    PAR --> CLU["Cluster<br/>Drain"]
+    PAR --> ANO["Anomaly<br/>z-score"]
+    IDX --> SNK["Sinks<br/>live view, search, storage"]
+    CLU --> SNK
+    ANO --> SNK
+    CLU -.-> AI["AI summary<br/>optional, cached"]
 ```
 
 It runs on a single `asyncio` event loop. The stages are connected by size-limited
 queues, which give backpressure for free: when a queue is full the producer waits,
 so a fast log source slows itself down instead of using up all the memory.
-
-The reasons behind each design choice are written down in
-[docs/decisions.md](docs/decisions.md).
 
 ## Distributed mode
 
@@ -89,12 +89,12 @@ If your app runs on more than one machine, each machine has its own log file.
 Normally you would log into each box to read them. LogScope collects them into
 one place using two small programs.
 
-```
-   Machine A:  app.log  -->  [agent]  --\
-                                         \
-   Machine B:  app.log  -->  [agent]  ----+--TCP-->  [server]  -->  one database
-                                         /
-   Machine C:  app.log  -->  [agent]  --/
+```mermaid
+flowchart LR
+    A["Machine A<br/>agent tails app.log"] -->|TCP| SV["Server"]
+    B["Machine B<br/>agent tails app.log"] -->|TCP| SV
+    C["Machine C<br/>agent tails app.log"] -->|TCP| SV
+    SV --> DB[("one database")]
 ```
 
 - An **agent** runs on each machine. It tails the local log and sends new lines
@@ -200,8 +200,7 @@ The live view has a headless smoke test. There are 100+ tests.
 Short reasons for the choices that matter: a single `asyncio` loop, an immutable
 event type, SQLite with FTS5, Drain written by hand instead of a library,
 statistics instead of machine learning for spikes, at-least-once delivery with
-de-duplication, and AI that is optional only. See
-[docs/decisions.md](docs/decisions.md).
+de-duplication, and AI that is optional only.
 
 ## Limitations
 

@@ -118,3 +118,24 @@ score 0.87" is not. Explainability is the senior signal here — we deliberately
 chose statistics we can justify over a black-box model. The floor prevents firing
 on tiny absolute jumps (0→3). Rejected: ML/forecasting models (opaque,
 overkill, harder to defend).
+
+---
+
+## D8 — Length-prefixed JSON frames with at-least-once + idempotent ingest
+
+**Context.** Agents on remote boxes ship event batches to a central server over
+TCP, which has no message boundaries and an unreliable connection.
+
+**Choice.** 4-byte big-endian length prefix + JSON payload (with a schema
+`version`). Agents batch (N events or T seconds), buffer to a bounded spool while
+disconnected (drop-oldest policy), reconnect with exponential backoff + jitter,
+and resend unacked batches. The server de-dups via the stable `event_id`.
+
+**Why.** Framing solves the TCP boundary problem explicitly. JSON keeps the wire
+debuggable (tcpdump-readable) at a modest size cost; `version` enables
+forward/backward compatibility. At-least-once + idempotent ingest yields
+effectively-once without the coordination cost of true exactly-once. Backoff
+*with jitter* avoids a thundering herd when a downed server recovers. Drop-oldest
+favors fresh data and is a documented, deliberate policy. Rejected: msgpack
+(smaller but opaque — debuggability won for a portfolio tool); exactly-once
+(disproportionate complexity).

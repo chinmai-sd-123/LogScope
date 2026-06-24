@@ -79,6 +79,42 @@ def search(
     console.print(f"[dim]{len(results)} match(es).[/]")
 
 
+@app.command()
+def serve(
+    db: Path = typer.Option(DEFAULT_DB, "--db", help="SQLite file to persist into."),
+    host: str = typer.Option("0.0.0.0", "--host", help="Bind address."),
+    port: int = typer.Option(9099, "--port", help="Listen port."),
+) -> None:
+    """Run the central server that accepts events from agents."""
+    import asyncio
+    import logging
+
+    from logscope.net.server import run_server
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    asyncio.run(run_server(db, host, port))
+
+
+@app.command()
+def agent(
+    paths: List[Path] = typer.Argument(..., help="Log file(s) to tail and ship."),
+    server: str = typer.Option("127.0.0.1:9099", "--server", help="host:port of the server."),
+    agent_id: Optional[str] = typer.Option(None, "--id", help="Agent identifier."),
+    from_start: bool = typer.Option(False, "--from-start", help="Ship existing contents too."),
+) -> None:
+    """Run a collector that tails local logs and ships them to a server."""
+    import asyncio
+    import logging
+    import socket
+
+    from logscope.net.agent import run_agent
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    host, _, port = server.partition(":")
+    aid = agent_id or socket.gethostname()
+    asyncio.run(run_agent(aid, paths, host, int(port or 9099), from_start))
+
+
 def main() -> None:  # pragma: no cover - thin wrapper
     app()
 

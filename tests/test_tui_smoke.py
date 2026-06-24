@@ -69,3 +69,17 @@ async def test_filter_narrows_buffer_view():
 
         shown = [e.message for e in app.buffer if matches_filter(e, "timeout")]
         assert shown == ["connection timeout", "timeout again"]
+
+
+@pytest.mark.asyncio
+async def test_clustering_runs_in_app():
+    # Three lines differing only by a number should collapse to one template.
+    events = [_ev("worker 1 failed"), _ev("worker 2 failed"), _ev("worker 3 failed")]
+    app = LogScopeApp([FakeSource(events)])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await asyncio.sleep(0.25)
+        await pilot.pause()
+        templates = app.drain.templates
+        assert len(templates) == 1
+        assert templates[0].count == 3

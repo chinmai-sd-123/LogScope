@@ -84,3 +84,37 @@ tens of thousands of inserts/sec). The stable id makes ingestion idempotent now,
 so Phase 4 agent resends de-dup for free. Scaling story if we outgrow SQLite:
 time-partitioned append-only segment files. Rejected: Postgres/Elasticsearch
 (operational overhead unjustified for a local tool).
+
+---
+
+## D6 — Drain (fixed-depth tree) for clustering, hand-written
+
+**Context.** Collapsing thousands of near-identical lines into ranked templates
+is the tool's most valuable feature, and must run online at high line rates.
+
+**Choice.** A hand-written Drain miner: mask variables, group by token length,
+descend a fixed number of leading-token layers to a leaf, then match by
+similarity (merging differing positions to `<*>`) or create a new template.
+
+**Why.** The fixed depth bounds work per line independent of how many templates
+exist (≈O(1) amortized) — the property that makes it viable online. Writing it by
+hand (not `drain3`) is the whole point: it's the algorithmic centerpiece and a
+data structure we can defend and whiteboard. Known limitation, tested explicitly:
+an *unmasked* variable in the prefix tokens over-splits; mitigations are masking
+and `depth` tuning. Tuning knobs: `depth`, `sim_threshold`, `max_children`.
+
+---
+
+## D7 — Transparent statistics for anomaly detection, not ML
+
+**Context.** Spike detection must be trustworthy to an on-call engineer mid-incident.
+
+**Choice.** Rolling z-score over fixed time buckets: flag a bucket whose count
+exceeds `mean + k·stddev`, with an absolute `min_count` floor. The window is
+maintained incrementally (running sum/sum-of-squares) for O(1) per tick.
+
+**Why.** "This bucket is 4σ above the last five minutes" is actionable; "anomaly
+score 0.87" is not. Explainability is the senior signal here — we deliberately
+chose statistics we can justify over a black-box model. The floor prevents firing
+on tiny absolute jumps (0→3). Rejected: ML/forecasting models (opaque,
+overkill, harder to defend).

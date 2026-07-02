@@ -17,7 +17,7 @@ import logging
 import random
 from collections import deque
 from itertools import islice
-from typing import Deque, List, Optional
+from typing import Deque, List
 
 from logscope.ingest.source import Source
 from logscope.model import LogEvent

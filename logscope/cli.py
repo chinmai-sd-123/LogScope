@@ -27,13 +27,20 @@ def _bootstrap() -> None:
     load_env()
 
 
-def _default_db() -> Path:
+def _resolve_db(db: Optional[Path]) -> Path:
+    """Resolve the SQLite path: --db flag, else LOGSCOPE_DB, else ./logscope.db.
+
+    Returned absolute so commands run from different directories don't silently
+    talk to different databases.
+    """
     import os
 
-    return Path(os.environ.get("LOGSCOPE_DB", "logscope.db"))
+    if db is None:
+        db = Path(os.environ.get("LOGSCOPE_DB", "logscope.db"))
+    return db.resolve()
 
 
-DEFAULT_DB = Path("logscope.db")
+_DB_HELP = "SQLite file for events (default: $LOGSCOPE_DB or ./logscope.db)."
 
 
 @app.command()
@@ -42,9 +49,7 @@ def tail(
     from_start: bool = typer.Option(
         False, "--from-start", help="Read existing contents first, then follow."
     ),
-    db: Optional[Path] = typer.Option(
-        DEFAULT_DB, "--db", help="SQLite file to persist events to (for search)."
-    ),
+    db: Optional[Path] = typer.Option(None, "--db", help=_DB_HELP),
     no_store: bool = typer.Option(
         False, "--no-store", help="Do not persist events; tail-only."
     ),
@@ -56,7 +61,11 @@ def tail(
     from logscope.tui.app import LogScopeApp
 
     sources = [FileSource(p, from_start=from_start) for p in paths]
-    store = None if no_store else EventStore(db)
+    store = None
+    if not no_store:
+        db = _resolve_db(db)
+        typer.echo(f"db: {db}")
+        store = EventStore(db)
     # Self-disables when OPENAI_API_KEY is absent; the TUI degrades gracefully.
     summarizer = OpenAISummarizer()
     LogScopeApp(sources, store=store, summarizer=summarizer).run()
@@ -65,7 +74,7 @@ def tail(
 @app.command()
 def search(
     query: str = typer.Argument(..., help='Query, e.g. \'level:error last:1h "timeout"\'.'),
-    db: Path = typer.Option(DEFAULT_DB, "--db", help="SQLite file to search."),
+    db: Optional[Path] = typer.Option(None, "--db", help=_DB_HELP),
     limit: int = typer.Option(100, "--limit", "-n", help="Max results."),
 ) -> None:
     """Search indexed history with the query language."""
@@ -82,6 +91,8 @@ def search(
         console.print(f"[bold red]query error:[/] {exc}")
         raise typer.Exit(code=2)
 
+    db = _resolve_db(db)
+    console.print(f"[dim]db: {db}[/]")
     if not db.exists():
         console.print(f"[yellow]no index at {db}; run 'logscope tail' first.[/]")
         raise typer.Exit(code=1)
@@ -100,7 +111,7 @@ def search(
 
 @app.command()
 def serve(
-    db: Path = typer.Option(DEFAULT_DB, "--db", help="SQLite file to persist into."),
+    db: Optional[Path] = typer.Option(None, "--db", help=_DB_HELP),
     host: str = typer.Option("0.0.0.0", "--host", help="Bind address."),
     port: int = typer.Option(9099, "--port", help="Listen port."),
 ) -> None:
@@ -111,6 +122,8 @@ def serve(
     from logscope.net.server import run_server
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    db = _resolve_db(db)
+    logging.getLogger("logscope.server").info("using db: %s", db)
     asyncio.run(run_server(db, host, port))
 
 

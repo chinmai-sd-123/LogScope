@@ -12,7 +12,6 @@ from logscope.net.protocol import (
     event_from_dict,
     event_to_dict,
     read_frame,
-    write_frame,
 )
 
 

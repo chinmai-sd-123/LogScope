@@ -6,14 +6,12 @@ from logscope.model import Level, LogEvent
 from logscope.query.ast import (
     FieldTerm,
     LevelTerm,
-    Query,
     SourceTerm,
     TextTerm,
     TimeTerm,
 )
 from logscope.query.lexer import LexError, TokenType, tokenize
 from logscope.query.parser import ParseError, parse_query
-
 
 # --------------------------------------------------------------------------- #
 # Lexer
